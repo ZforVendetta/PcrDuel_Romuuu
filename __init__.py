@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import re
 import random
 import sqlite3
 from datetime import datetime, timedelta
@@ -11,10 +12,13 @@ from hoshino.modules.priconne.pcr_duel import _pcr_duel_data as _pcr_data
 from hoshino.modules.priconne.pcr_duel import duel_chara as chara
 from hoshino.typing import CQEvent
 from hoshino.util import DailyNumberLimiter
+from nonebot import permission as perm
+from nonebot import CommandSession
 import copy
 import json
 
 sv = Service('pcr-duel', enable_on_default=True)
+PRIV_TIP = f'群主={priv.OWNER} 群管={priv.ADMIN} 群员={priv.NORMAL} bot维护组={priv.SUPERUSER}'
 DUEL_DB_PATH = os.path.expanduser('~/.hoshino/pcr_duel.db')
 SCORE_DB_PATH = os.path.expanduser('~/.hoshino/pcr_running_counter.db')
 BLACKLIST_ID = [1000, 1072, 1908, 4031, 9000, 1069, 1073, 1701, 1702,1067,1907,1909,1911,1913,1914,1915,1916,1917,1918,1919,1920,9601,9602,9603,9604] # 黑名单ID
@@ -310,6 +314,52 @@ def save_dlc_switch():
     with open(os.path.join(FILE_PATH,'dlc_config.json'),'w',encoding='UTF-8') as f:
         json.dump(dlc_switch,f,ensure_ascii=False)
 
+
+
+
+# Romuuu Addin
+@sv.on_prefix('ban')
+async def ban_user(bot, ev: CQEvent):
+    gid = ev.group_id
+    if not priv.check_priv(ev, priv.OWNER):
+        await bot.finish(ev, '只有群主才能使用重置角色功能哦。', at_sender=True)
+    args = ev.message.extract_plain_text().split()
+    if len(args)>=2:
+        await bot.finish(ev, '指令格式错误', at_sender=True)
+    if len(args)==0:
+        await bot.finish(ev, '请输入重置角色+被重置者QQ', at_sender=True)
+    else :
+        id = args[0]
+        duel = DuelCounter()
+        if duel._get_level(gid, id) == 0:
+            await bot.finish(ev, '该用户还未在本群创建贵族哦。', at_sender=True)
+        cidlist = duel._get_cards(gid, id)
+        for cid in cidlist:
+            duel._delete_card(gid, id, cid)
+        queen = duel._search_queen(gid,id)
+        duel._delete_queen_owner(gid,queen)
+        duel._set_ban(gid,id)
+        await bot.finish(ev, f'用户{id}已被Ban，他的女友离他而去。', at_sender=True)
+
+@sv.on_prefix('unban')
+async def unban_user(bot, ev: CQEvent):
+    gid = ev.group_id
+    if not priv.check_priv(ev, priv.OWNER):
+        await bot.finish(ev, '只有群主才能使用重置角色功能哦。', at_sender=True)
+    args = ev.message.extract_plain_text().split()
+    if len(args)>=2:
+        await bot.finish(ev, '指令格式错误', at_sender=True)
+    if len(args)==0:
+        await bot.finish(ev, '请输入重置角色+被重置者QQ', at_sender=True)
+    else :
+        id = args[0]
+        duel = DuelCounter()
+        if duel._get_level(gid, id) == 0:
+            await bot.finish(ev, '该用户还未在本群创建贵族哦。', at_sender=True)
+        duel._set_unban(gid,id)
+        await bot.finish(ev, f'用户{id}已被解Ban，但他的女友早已与他分道扬镳。', at_sender=True)
+
+                
 
 
 @sv.on_prefix(['加载dlc','加载DLC','开启dlc','开启DLC'])
@@ -693,7 +743,7 @@ class DuelCounter:
                           (GID             INT    NOT NULL,
                            UID             INT    NOT NULL,
                            LEVEL           INT    NOT NULL,
-                           
+                           BAN             INT    NOT NULL,
                            PRIMARY KEY(GID, UID));''')
         except:
             raise Exception('创建UID表发生错误')
@@ -727,6 +777,14 @@ class DuelCounter:
             r = conn.execute(
                 f"SELECT CID FROM CHARATABLE WHERE GID={gid}").fetchall()
             return [c[0] for c in r] if r else {}
+    # Romuuu Addin
+    # 查询是否封禁 LEVELTABLE
+    def _get_ban(self, gid, uid):
+        try:
+            r = self._connect().execute("SELECT BAN FROM LEVELTABLE WHERE GID=? AND UID=?", (gid, uid)).fetchone()
+            return 0 if r is None else r[0]
+        except:
+            raise Exception('查找封禁信息发生错误')
 
     def _get_level(self, gid, uid):
         try:
@@ -777,8 +835,8 @@ class DuelCounter:
         level += increment
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL) VALUES (?, ?, ?)",
-                (gid, uid, level),
+                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL, BAN) VALUES (?, ?, ?, ?)",
+                (gid, uid, level, 0),
             )
 
     def _reduce_level(self, gid, uid, increment=1):
@@ -786,16 +844,33 @@ class DuelCounter:
         level -= increment
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL) VALUES (?, ?, ?)",
-                (gid, uid, level),
+                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL, BAN) VALUES (?, ?, ?, ?)",
+                (gid, uid, level, 0),
             )
 
     def _set_level(self, gid, uid, level):
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL) VALUES (?, ?, ?)",
-                (gid, uid, level),
+                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL, BAN) VALUES (?, ?, ?, ?)",
+                (gid, uid, level, 0),
             )
+
+    def _set_ban(self, gid, uid):
+        level = self._get_level(gid, uid)
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL, BAN) VALUES (?, ?, ?, ?)",
+                (gid, uid, level, 1),
+            )
+
+    def _set_unban(self, gid, uid):
+        level = self._get_level(gid, uid)
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO LEVELTABLE (GID, UID, LEVEL, BAN) VALUES (?, ?, ?, ?)",
+                (gid, uid, level, 0),
+            )
+
     def _get_level_num(self, gid, level):
         with self._connect() as conn:
             r = conn.execute(
@@ -1303,6 +1378,10 @@ async def noblelogin(bot, ev: CQEvent):
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
         return
+    if duel._get_ban(gid, uid) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     #根据概率随机获得收益。 
     score_counter = ScoreCounter2()
     daily_sign_limiter.increase(guid)    
@@ -1392,6 +1471,10 @@ async def inquire_noble(bot, ev: CQEvent):
     score_counter = ScoreCounter2()
     if duel._get_level(gid, uid) == 0:
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
+        await bot.send(ev, msg, at_sender=True)
+        return
+    if duel._get_ban(gid, uid) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
         await bot.send(ev, msg, at_sender=True)
         return
     level = duel._get_level(gid, uid)
@@ -1510,6 +1593,10 @@ async def add_girl(bot, ev: CQEvent):
         await bot.send(ev, msg, at_sender=True)
         return
     else:
+        if duel._get_ban(gid, uid) == 1:
+            msg = '您已被BAN，如有异议请联系群管理解BAN。'
+            await bot.send(ev, msg, at_sender=True)
+            return
         # 防止女友数超过上限
         level = duel._get_level(gid, uid)
         noblename = get_noblename(level)
@@ -1591,7 +1678,10 @@ async def add_girl(bot, ev: CQEvent):
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
         return
-
+    if duel._get_ban(gid, uid) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     if level == 6:
         msg = f'您已经是国王了， 需要通过声望加冕称帝哦。'
         await bot.send(ev, msg, at_sender=True)
@@ -1638,6 +1728,10 @@ async def nobleduel(bot, ev: CQEvent):
     id1 = ev.user_id
     duel = DuelCounter()
     is_overtime = 0
+    if duel._get_ban(gid, id1) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     if id2 == id1:
         await bot.send(ev, "不能和自己决斗！", at_sender=True)
         duel_judger.turn_off(ev.group_id)
@@ -2004,7 +2098,7 @@ async def get_score(bot, ev: CQEvent):
 
 @sv.on_rex(f'^为(\d+)充值(\d+)金币$')
 async def cheat_score(bot, ev: CQEvent):
-    if not priv.check_priv(ev, priv.SUPERUSER):
+    if not priv.check_priv(ev, priv.OWNER) or not priv.check_priv(ev, priv.SUPERUSER):
         await bot.finish(ev, '不要想着走捷径哦。', at_sender=True)
     gid = ev.group_id
     match = ev['match']
@@ -2325,6 +2419,10 @@ async def daily_date(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
+    if duel._get_ban(gid, uid) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     if not args:
         await bot.finish(ev, '请输入贵族约会+女友名。', at_sender=True)
     name = args[0]
@@ -2470,6 +2568,10 @@ async def change_gift(bot, ev: CQEvent):
         await bot.finish(ev, "有正在进行的礼物交换，请勿重复使用指令。")
     gift_change.turn_on_giftchange(gid)
     id1 = ev.user_id
+    if duel._get_ban(gid, id1) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     match = ev['match']
     try:
         id2 = int(ev.message[1].data['qq'])
@@ -2673,6 +2775,10 @@ async def add_warehouse(bot, ev: CQEvent):
     uid = ev.user_id
     level = duel._get_level(gid, uid)
     current_score = score_counter._get_score(gid, uid)
+    if duel._get_ban(gid, uid) == 1:
+        msg = '您已被BAN，如有异议请联系群管理解BAN。'
+        await bot.send(ev, msg, at_sender=True)
+        return
     if duel_judger.get_on_off_status(ev.group_id):
         msg = '现在正在决斗中哦，请决斗后再来购买上限吧。'
         await bot.finish(ev, msg, at_sender=True)    
