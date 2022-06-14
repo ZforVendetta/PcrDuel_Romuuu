@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import os
-import re
 import random
 import sqlite3
 from datetime import datetime, timedelta
@@ -12,8 +11,6 @@ from hoshino.modules.priconne.pcr_duel import _pcr_duel_data as _pcr_data
 from hoshino.modules.priconne.pcr_duel import duel_chara as chara
 from hoshino.typing import CQEvent
 from hoshino.util import DailyNumberLimiter
-from nonebot import permission as perm
-from nonebot import CommandSession
 import copy
 import json
 
@@ -322,12 +319,12 @@ def save_dlc_switch():
 async def ban_user(bot, ev: CQEvent):
     gid = ev.group_id
     if not priv.check_priv(ev, priv.OWNER):
-        await bot.finish(ev, '只有群主才能使用重置角色功能哦。', at_sender=True)
+        await bot.finish(ev, '只有群主才能使用封禁功能。', at_sender=True)
     args = ev.message.extract_plain_text().split()
     if len(args)>=2:
         await bot.finish(ev, '指令格式错误', at_sender=True)
     if len(args)==0:
-        await bot.finish(ev, '请输入重置角色+被重置者QQ', at_sender=True)
+        await bot.finish(ev, '请输入ban+被ban者QQ', at_sender=True)
     else :
         id = args[0]
         duel = DuelCounter()
@@ -345,12 +342,12 @@ async def ban_user(bot, ev: CQEvent):
 async def unban_user(bot, ev: CQEvent):
     gid = ev.group_id
     if not priv.check_priv(ev, priv.OWNER):
-        await bot.finish(ev, '只有群主才能使用重置角色功能哦。', at_sender=True)
+        await bot.finish(ev, '只有群主才能使用解封功能。', at_sender=True)
     args = ev.message.extract_plain_text().split()
     if len(args)>=2:
         await bot.finish(ev, '指令格式错误', at_sender=True)
     if len(args)==0:
-        await bot.finish(ev, '请输入重置角色+被重置者QQ', at_sender=True)
+        await bot.finish(ev, '请输入unban+被ban者QQ', at_sender=True)
     else :
         id = args[0]
         duel = DuelCounter()
