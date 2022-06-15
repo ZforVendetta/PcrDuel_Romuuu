@@ -7,7 +7,7 @@
 <br>
 TODO：<br>
 	<del>1.猜角色猜头像每日任务，赢三次获得金币奖励。一天两次。</del><br>
-	<t>2.押注roll点比大小的新决du斗bo方式。<br>
+	<del>2.押注roll点比大小的新决du斗bo方式。</del><br>
 	<t>3.每日小彩票。<br>
 
 <br><br><br>
